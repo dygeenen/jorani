@@ -1,22 +1,45 @@
-FROM composer as composer
-COPY composer.json composer.lock ./
-RUN composer install --ignore-platform-reqs --no-dev
+  
+FROM centos/php-73-centos7
 
-FROM php:7.4-apache
-RUN apt-get update && apt-get install -y zlib1g-dev \
-    libzip-dev \
-    libldap2-dev \
-    libfreetype6-dev \
-    libjpeg62-turbo-dev \
-    libpng-dev \
-    && docker-php-ext-configure zip \
-    && docker-php-ext-configure ldap --with-libdir=lib/x86_64-linux-gnu/ \
-    && docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install -j$(nproc) gd ldap zip pdo pdo_mysql \
-    && rm -rf /var/lib/apt/lists/
-RUN a2enmod rewrite
-RUN mv "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
+ENV SUMMARY="Platform for building and running PHP $PHP_VERSION applications for ITPS purposes" \
+    DESCRIPTION="PHP $PHP_VERSION available as container is a base platform for \
+building and running various PHP $PHP_VERSION applications and frameworks. \
+PHP is an HTML-embedded scripting language. PHP attempts to make it easy for developers \
+to write dynamically generated web pages. PHP also offers built-in database integration \
+for several commercial and non-commercial database management systems, so writing \
+a database-enabled webpage with PHP is fairly simple. The most common use of PHP coding \
+is probably as a replacement for CGI scripts."
+
+USER 0
+
+# Install MSSQL
+RUN INSTALL_PREREQUIS_MSSQL="gcc-c++ gcc rh-php73-php-devel rh-php73-php-pear yum-utils" && \
+    yum install -y --setopt=tsflags=nodocs $INSTALL_PREREQUIS_MSSQL --nogpgcheck
+
+RUN curl https://packages.microsoft.com/config/rhel/7/prod.repo > /etc/yum.repos.d/mssql-release.repo && \
+    yum -y remove unixODBC-utf16 unixODBC-utf16-devel && \
+    yum -y install unixODBC-devel && \
+    ACCEPT_EULA=Y yum -y install msodbcsql17 && \
+    ACCEPT_EULA=Y yum -y install mssql-tools && \
+    rpm -V msodbcsql17 mssql-tools unixODBC-devel && \
+    pecl install sqlsrv && \
+    pecl install pdo_sqlsrv && \
+    echo extension=pdo_sqlsrv.so >> `php --ini | grep "Scan for additional .ini files" | sed -e "s|.*:\s*||"`/30-pdo_sqlsrv.ini && \
+    echo extension=sqlsrv.so >> `php --ini | grep "Scan for additional .ini files" | sed -e "s|.*:\s*||"`/20-sqlsrv.ini
+
+# Install Tidy
+RUN INSTALL_TIDY="rh-php73-php-tidy" && \
+    yum install -y --setopt=tsflags=nodocs $INSTALL_TIDY --nogpgcheck
+
 COPY --from=composer /app/vendor /var/www/html/vendor
 COPY . .
+
 RUN chown www-data application/logs local/upload/leaves/
 COPY docker/config.php docker/database.php docker/email.php application/config/
+
+
+USER 1001
+
+
+
+
